@@ -90,10 +90,11 @@ func (ka *KinesisAdapter) Stream(logstream chan *router.Message) {
 		msg := createLogstashMessage(m, ka.docker_host, ka.use_v0)
         js, err := json.Marshal(msg)
         if err != nil {
+        	fmt.Printf("KinesisAdapter received log message: %s", err)
             log.Println("logspoutkinesis: error on json.Marshal (muting until restored):", err)
             continue
         }
-		fmt.Print("KinesisAdapter received log message: %s", js)
+		fmt.Printf("KinesisAdapter received log message: %s", js)
 	}
 }	
 
