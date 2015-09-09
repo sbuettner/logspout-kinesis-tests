@@ -15,7 +15,7 @@ import (
 
 type KinesisAdapter struct {
     route       *router.Route
-    key         string
+    stream      string
     docker_host string
     use_v0      bool
 }
@@ -53,17 +53,40 @@ func init() {
 }
 
 func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
+	// The kinesis stream where the logs should be sent to
+	stream := route.Options["stream"]
+    if stream == "" {
+        stream = getopt("LK_AWS_KINESIS_STREAM", "logspout")
+    }
+
+	// Host of the docker instance
+	docker_host := getopt("LK_DOCKER_HOST", "")
+
+	// Whether to use the v0 logtstash layout or v1
+    use_v0 := route.Options["use_v0_layout"] != ""
+    if !use_v0 {
+        use_v0 = getopt("LK_USE_V0_LAYOUT", "") != ""
+    }
+
 	// Return the kinesis adapter that will receive all the logs
 	return &KinesisAdapter{
         route:          route,
-        key:            key,
+        stream:         stream,
         docker_host:    docker_host,
         use_v0:         use_v0,
     }, nil
 }
 
+func getopt(name, dfault string) string {
+    value := os.Getenv(name)
+    if value == "" {
+        value = dfault
+    }
+    return value
+}
+
 func (ka *KinesisAdapter) Stream(logstream chan *router.Message) {
 	for m := range logstream {
-		Print("KinesisAdapter received log message: %s", logstream)
+		fmt.Print("KinesisAdapter received log message: %s", logstream)
 	}
 }	
