@@ -87,6 +87,7 @@ func getopt(name, dfault string) string {
 
 func (ka *KinesisAdapter) Stream(logstream chan *router.Message) {
 	for m := range logstream {
+		fmt.Printf("KinesisAdapter received log message: %s", m)
 		msg := createLogstashMessage(m, ka.docker_host, ka.use_v0)
         js, err := json.Marshal(msg)
         if err != nil {
@@ -94,7 +95,7 @@ func (ka *KinesisAdapter) Stream(logstream chan *router.Message) {
             log.Println("logspoutkinesis: error on json.Marshal (muting until restored):", err)
             continue
         }
-		fmt.Printf("KinesisAdapter received log message: %s", js)
+		fmt.Printf("KinesisAdapter send json message: %s", js)
 	}
 }	
 
