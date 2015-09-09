@@ -67,7 +67,9 @@ func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
 		os.Exit(1)
 	}
 
-	batch_client := kinesis.New(auth, "")
+	aws_region := kinesis.NewRegionFromEnv()
+	log.Printf("Using kinesis region: %s\n", aws_region)
+	batch_client := kinesis.New(auth, aws_region)
 
 	// Batch config
 	batchproducer_config := batchproducer.Config{
