@@ -144,7 +144,7 @@ func (ka *KinesisAdapter) Stream(logstream chan *router.Message) {
         }
 
         // Send log message to kinesis
-        err := ka.batch_producer.Add(log_json, ka.docker_host)
+        err = ka.batch_producer.Add(log_json, ka.docker_host)
         if err != nil {
         	if !mute {
                 log.Println("logspoutkinesis: error on batchproducer.Stop (muting until restored): %v\n", err)
