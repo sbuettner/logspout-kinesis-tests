@@ -19,6 +19,7 @@ type KinesisAdapter struct {
     route       	*router.Route
     batch_client	*kinesis.Kinesis
     batch_producer 	batchproducer.Producer
+    streamName		string
     docker_host 	string
     use_v0    		bool
 }
@@ -90,7 +91,7 @@ func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
 	}
 
 	// Host of the docker instance
-	docker_host := getopt("LK_DOCKER_HOST", "")
+	docker_host := getopt("LK_DOCKER_HOST", "unknown-docker-host")
 
 	// Whether to use the v0 logtstash layout or v1
     use_v0 := route.Options["use_v0_layout"] != ""
@@ -103,6 +104,7 @@ func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
         route:          route,
         batch_client:	batch_client,
         batch_producer: batch_producer,
+        streamName: 	streamName,
         docker_host:    docker_host,
         use_v0:         use_v0,
     }, nil
@@ -144,6 +146,7 @@ func (ka *KinesisAdapter) Stream(logstream chan *router.Message) {
 
         // Prepage kinesis record
         args := kinesis.NewArgs()
+        args.Add("StreamName", ka.streamName)
         args.AddRecord(
 			log_json,		// payload
 			ka.docker_host, // partition key
