@@ -11,13 +11,16 @@ import (
     "time"
     "encoding/json"
     "github.com/gliderlabs/logspout/router"
+    kinesis "github.com/sendgridlabs/go-kinesis"
+    batchproducer "github.com/sendgridlabs/go-kinesis/batchproducer"
 )
 
 type KinesisAdapter struct {
-    route       *router.Route
-    stream      string
-    docker_host string
-    use_v0      bool
+    route       	*router.Route
+    batch_client	*kinesis.Kinesis
+    batch_producer 	batchproducer.Producer
+    docker_host 	string
+    use_v0    		bool
 }
 
 type DockerFields struct {
@@ -54,10 +57,35 @@ func init() {
 
 func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
 	// The kinesis stream where the logs should be sent to
-	stream := route.Options["stream"]
-    if stream == "" {
-        stream = getopt("LK_AWS_KINESIS_STREAM", "logspout")
-    }
+	streamName := route.Address
+	log.Printf("Using kinesis stream: %s\n", streamName)
+	
+	// set env variables AWS_ACCESS_KEY and AWS_SECRET_KEY AWS_REGION_NAME
+	auth, err := kinesis.NewAuthFromEnv()
+	if err != nil {
+		fmt.Printf("Unable to retrieve authentication credentials from the environment: %v", err)
+		os.Exit(1)
+	}
+
+	batch_client := kinesis.New(auth, "")
+
+	// Batch config
+	batchproducer_config := batchproducer.Config{
+	    AddBlocksWhenBufferFull: false,
+	    BufferSize:              10000,
+	    FlushInterval:           1 * time.Second,
+	    BatchSize:               10,
+	    MaxAttemptsPerRecord:    10,
+	    StatInterval:            1 * time.Second,
+	    Logger:                  log.New(os.Stderr, "", log.LstdFlags),
+	}
+
+	// Create a batchproducer
+	batch_producer, err := batchproducer.New(batch_client, streamName, batchproducer_config)
+	if err != nil {
+		fmt.Printf("Unable to retrieve create batchproducer: %v", err)
+		os.Exit(1)
+	}
 
 	// Host of the docker instance
 	docker_host := getopt("LK_DOCKER_HOST", "")
@@ -71,7 +99,8 @@ func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
 	// Return the kinesis adapter that will receive all the logs
 	return &KinesisAdapter{
         route:          route,
-        stream:         stream,
+        batch_client:	batch_client,
+        batch_producer: batch_producer,
         docker_host:    docker_host,
         use_v0:         use_v0,
     }, nil
@@ -86,16 +115,52 @@ func getopt(name, dfault string) string {
 }
 
 func (ka *KinesisAdapter) Stream(logstream chan *router.Message) {
-	log.Printf("KinesisAdapter running.")
+	// Start the producer
+	err := ka.batch_producer.Start()
+	if err != nil {
+		fmt.Printf("Unable to start batchproducer: %v", err)
+		os.Exit(1)
+	}
+
+	// Register stop
+	defer ka.batch_producer.Stop()
+
+	// Handle log messages
+	mute := false
 	for m := range logstream {
-		log.Printf("KinesisAdapter received log message: %s\n", m)
 		msg := createLogstashMessage(m, ka.docker_host, ka.use_v0)
-        js, err := json.Marshal(msg)
+
+		// Create json from log message
+        log_json, err := json.Marshal(msg)
         if err != nil {
-        	log.Println("logspoutkinesis: error on json.Marshal (muting until restored):", err)
+        	if !mute {
+                log.Println("logspoutkinesis: error on json.Marshal (muting until restored): %v\n", err)
+                mute = true
+            }
             continue
         }
-	fmt.Printf("KinesisAdapter json: %s", js)
+
+        // Prepage kinesis record
+        args := kinesis.NewArgs()
+        args.AddRecord(
+			log_json,		// payload
+			ka.docker_host, // partition key
+		)
+
+		// Send log message to kinesis
+        resp, err := ka.batch_client.PutRecords(args)
+        if err != nil {
+        	if !mute {
+                log.Println("logspoutkinesis: error on kinesis.PutRecords (muting until restored): %v\n", err)
+                mute = true
+            }
+            continue
+        } else {
+			log.Println("logspoutkinesis: PutRecords: %v\n", resp)
+        }
+ 		
+		// Unmute
+        mute = false
 	}
 }	
 
