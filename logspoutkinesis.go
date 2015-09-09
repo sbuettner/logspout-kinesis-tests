@@ -87,6 +87,59 @@ func getopt(name, dfault string) string {
 
 func (ka *KinesisAdapter) Stream(logstream chan *router.Message) {
 	for m := range logstream {
-		fmt.Print("KinesisAdapter received log message: %s", logstream)
+		msg := createLogstashMessage(m, ka.docker_host, ka.use_v0)
+        js, err := json.Marshal(msg)
+        if err != nil {
+            log.Println("logspoutkinesis: error on json.Marshal (muting until restored):", err)
+            continue
+        }
+		fmt.Print("KinesisAdapter received log message: %s", js)
 	}
 }	
+
+func splitImage(image string) (string, string) {
+    n := strings.Index(image, ":")
+    if n > -1 {
+        return image[0:n], image[n+1:]
+    }
+    return image, ""
+}
+
+func createLogstashMessage(m *router.Message, docker_host string, use_v0 bool) interface{} {
+    image_name, image_tag := splitImage(m.Container.Config.Image)
+    cid := m.Container.ID[0:12]
+    name := m.Container.Name[1:]
+    timestamp := m.Time.Format(time.RFC3339Nano)
+
+    if use_v0 {
+        return LogstashMessageV0{
+            Message:    m.Data,
+            Timestamp:  timestamp,
+            Sourcehost: m.Container.Config.Hostname,
+            Fields:     LogstashFields{
+                Docker: DockerFields{
+                    CID:        cid,
+                    Name:       name,
+                    Image:      image_name,
+                    ImageTag:   image_tag,
+                    Source:     m.Source,
+                    DockerHost: docker_host,
+                },
+            },
+        }
+    }
+
+    return LogstashMessageV1{
+        Message:    m.Data,
+        Timestamp:  timestamp,
+        Sourcehost: m.Container.Config.Hostname,
+        Fields:     DockerFields{
+            CID:        cid,
+            Name:       name,
+            Image:      image_name,
+            ImageTag:   image_tag,
+            Source:     m.Source,
+            DockerHost: docker_host,
+        },
+    }
+}
