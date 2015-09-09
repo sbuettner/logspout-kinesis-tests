@@ -95,6 +95,7 @@ func (ka *KinesisAdapter) Stream(logstream chan *router.Message) {
         	log.Println("logspoutkinesis: error on json.Marshal (muting until restored):", err)
             continue
         }
+	fmt.Printf("KinesisAdapter json: %s", js)
 	}
 }	
 
