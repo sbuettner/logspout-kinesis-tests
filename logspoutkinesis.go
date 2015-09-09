@@ -102,7 +102,6 @@ func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
 	// Return the kinesis adapter that will receive all the logs
 	return &KinesisAdapter{
         route:          route,
-        batch_client:	batch_client,
         batch_producer: batch_producer,
         streamName: 	streamName,
         docker_host:    docker_host,
@@ -144,24 +143,14 @@ func (ka *KinesisAdapter) Stream(logstream chan *router.Message) {
             continue
         }
 
-        // Prepage kinesis record
-        args := kinesis.NewArgs()
-        args.Add("StreamName", ka.streamName)
-        args.AddRecord(
-			log_json,		// payload
-			ka.docker_host, // partition key
-		)
-
-		// Send log message to kinesis
-        resp, err := ka.batch_client.PutRecords(args)
+        // Send log message to kinesis
+        err := ka.batch_producer.Add(log_json, ka.docker_host)
         if err != nil {
         	if !mute {
-                log.Println("logspoutkinesis: error on kinesis.PutRecords (muting until restored): %v\n", err)
+                log.Println("logspoutkinesis: error on batchproducer.Stop (muting until restored): %v\n", err)
                 mute = true
             }
             continue
-        } else {
-			log.Println("logspoutkinesis: PutRecords: %v\n", resp)
         }
  		
 		// Unmute
