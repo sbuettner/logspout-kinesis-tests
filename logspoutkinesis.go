@@ -59,7 +59,7 @@ func init() {
 }
 
 func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
-	// Kinesis client
+	// kinesis client
     batch_client := getKinesis(route)
 
     // The kinesis stream where the logs should be sent to
@@ -68,6 +68,7 @@ func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
     
     // Batch config
     batchproducer_config := getKinesisConfig(route)
+    fmt.Printf("# KINESIS Adapter - Batch config: %v\n", streamName)
     
 	// Create a batchproducer
 	batch_producer, err := batchproducer.New(batch_client, streamName, batchproducer_config)
