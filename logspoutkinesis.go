@@ -6,6 +6,7 @@ package logspoutkinesis
 import (
     "fmt"
     "strings"
+    "strconv"
     "log"
     "os"
     "time"
@@ -25,12 +26,13 @@ type KinesisAdapter struct {
 }
 
 type DockerFields struct {
-    Name        string `json:"name"`
-    CID         string `json:"cid"`
-    Image       string `json:"image"`
-    ImageTag    string `json:"image_tag,omitempty"`
-    Source      string `json:"source"`
-    DockerHost  string `json:"docker_host,omitempty"`
+    Name        string              `json:"name"`
+    CID         string              `json:"cid"`
+    Image       string              `json:"image"`
+    ImageTag    string              `json:"image_tag,omitempty"`
+    Source      string              `json:"source"`
+    DockerHost  string              `json:"docker_host,omitempty"`
+    Labels      map[string]string   `json:"labels,omitempty"`
 }
 
 type LogstashFields struct {
@@ -57,32 +59,16 @@ func init() {
 }
 
 func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
-	// The kinesis stream where the logs should be sent to
-	streamName := route.Address
-	log.Printf("Using kinesis stream: %s\n", streamName)
-	
-	// set env variables AWS_ACCESS_KEY and AWS_SECRET_KEY AWS_REGION_NAME
-	auth, err := kinesis.NewAuthFromEnv()
-	if err != nil {
-		fmt.Printf("Unable to retrieve authentication credentials from the environment: %v", err)
-		os.Exit(1)
-	}
+	// Kinesis client
+    batch_client := getKinesis(route)
 
-	aws_region := kinesis.NewRegionFromEnv()
-	log.Printf("Using kinesis region: %s\n", aws_region)
-	batch_client := kinesis.New(auth, aws_region)
-
-	// Batch config
-	batchproducer_config := batchproducer.Config{
-	    AddBlocksWhenBufferFull: false,
-	    BufferSize:              10000,
-	    FlushInterval:           1 * time.Second,
-	    BatchSize:               10,
-	    MaxAttemptsPerRecord:    10,
-	    StatInterval:            1 * time.Second,
-	    Logger:                  log.New(os.Stderr, "", log.LstdFlags),
-	}
-
+    // The kinesis stream where the logs should be sent to
+    streamName := route.Address
+    log.Printf("Using kinesis stream: %s\n", streamName)
+    
+    // Batch config
+    batchproducer_config := getKinesisConfig(route)
+    
 	// Create a batchproducer
 	batch_producer, err := batchproducer.New(batch_client, streamName, batchproducer_config)
 	if err != nil {
@@ -107,6 +93,81 @@ func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
         docker_host:    docker_host,
         use_v0:         use_v0,
     }, nil
+}
+
+func getKinesis(route *router.Route) *kinesis.Kinesis {
+    // set env variables AWS_ACCESS_KEY and AWS_SECRET_KEY AWS_REGION_NAME
+    auth, err := kinesis.NewAuthFromEnv()
+    if err != nil {
+        fmt.Printf("Unable to retrieve authentication credentials from the environment: %v", err)
+        os.Exit(1)
+    }
+
+    // AWS region
+    aws_region := kinesis.NewRegionFromEnv()
+    log.Printf("Using kinesis region: %s\n", aws_region)
+
+    return kinesis.New(auth, aws_region)
+}
+
+func getKinesisConfig(route *router.Route) batchproducer.Config {
+    AddBlocksWhenBufferFull := false
+    AddBlocksWhenBufferFull_string, ok := route.Options["add_blocks_when_buffer_full"];
+    if ok && AddBlocksWhenBufferFull_string != "" {
+        if b, err := strconv.ParseBool(AddBlocksWhenBufferFull_string); err == nil {
+            AddBlocksWhenBufferFull = b
+        }
+    }
+
+    BufferSize := 10000
+    BufferSize_string, ok := route.Options["buffer_size"];
+    if ok && BufferSize_string != "" {
+        if i, err := strconv.ParseInt(AddBlocksWhenBufferFull_string, 10, 0); err == nil {
+            BufferSize = int(i)
+        }
+    }
+
+    FlushInterval := 1 * time.Second
+    FlushInterval_string, ok := route.Options["flush_interval"];
+    if ok && FlushInterval_string != "" {
+        if i, err := strconv.ParseInt(FlushInterval_string, 10, 0); err == nil {
+            FlushInterval = time.Duration(i) * time.Second
+        }
+    }
+
+    BatchSize := 10
+    BatchSize_string, ok := route.Options["batch_size"];
+    if ok && BatchSize_string != "" {
+        if i, err := strconv.ParseInt(BatchSize_string, 10, 0); err == nil {
+            BatchSize = int(i)
+        }
+    }
+
+    MaxAttemptsPerRecord := 10
+    MaxAttemptsPerRecord_string, ok := route.Options["max_attempts_per_record"];
+    if ok && MaxAttemptsPerRecord_string != "" {
+        if i, err := strconv.ParseInt(MaxAttemptsPerRecord_string, 10, 0); err == nil {
+            MaxAttemptsPerRecord = int(i)
+        }
+    }
+
+    StatInterval := 1 * time.Second
+    StatInterval_string, ok := route.Options["start_interval"];
+    if ok && StatInterval_string != "" {
+        if i, err := strconv.ParseInt(StatInterval_string, 10, 0); err == nil {
+            StatInterval = time.Duration(i) * time.Second
+        }
+    }
+
+    return batchproducer.Config{
+        AddBlocksWhenBufferFull: AddBlocksWhenBufferFull,
+        BufferSize:              BufferSize,
+        FlushInterval:           FlushInterval,
+        BatchSize:               BatchSize,
+        MaxAttemptsPerRecord:    MaxAttemptsPerRecord,
+        StatInterval:            StatInterval,
+        Logger:                  log.New(os.Stderr, "kinesis: ", log.LstdFlags),
+    }
 }
 
 func getopt(name, dfault string) string {
@@ -170,6 +231,7 @@ func createLogstashMessage(m *router.Message, docker_host string, use_v0 bool) i
     image_name, image_tag := splitImage(m.Container.Config.Image)
     cid := m.Container.ID[0:12]
     name := m.Container.Name[1:]
+    labels := m.Container.Config.Labels
     timestamp := m.Time.Format(time.RFC3339Nano)
 
     if use_v0 {
@@ -185,6 +247,7 @@ func createLogstashMessage(m *router.Message, docker_host string, use_v0 bool) i
                     ImageTag:   image_tag,
                     Source:     m.Source,
                     DockerHost: docker_host,
+                    Labels: labels,
                 },
             },
         }
