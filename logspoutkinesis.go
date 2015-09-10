@@ -64,7 +64,7 @@ func NewLogspoutAdapter(route *router.Route) (router.LogAdapter, error) {
 
     // The kinesis stream where the logs should be sent to
     streamName := route.Address
-    log.Printf("Using kinesis stream: %s\n", streamName)
+    fmt.Printf("# KINESIS Adapter - Using stream: %s\n", streamName)
     
     // Batch config
     batchproducer_config := getKinesisConfig(route)
@@ -105,7 +105,7 @@ func getKinesis(route *router.Route) *kinesis.Kinesis {
 
     // AWS region
     aws_region := kinesis.NewRegionFromEnv()
-    log.Printf("Using kinesis region: %s\n", aws_region)
+    fmt.Printf("# KINESIS Adapter - Using region: %s\n", aws_region)
 
     return kinesis.New(auth, aws_region)
 }
@@ -233,6 +233,8 @@ func createLogstashMessage(m *router.Message, docker_host string, use_v0 bool) i
     name := m.Container.Name[1:]
     labels := m.Container.Config.Labels
     timestamp := m.Time.Format(time.RFC3339Nano)
+
+    log.Println("docker config: %v\n", m.Container.Config)
 
     if use_v0 {
         return LogstashMessageV0{
