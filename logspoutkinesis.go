@@ -234,8 +234,6 @@ func createLogstashMessage(m *router.Message, docker_host string, use_v0 bool) i
     labels := m.Container.Config.Labels
     timestamp := m.Time.Format(time.RFC3339Nano)
 
-    log.Println("docker config: %v\n", m.Container.Config)
-
     if use_v0 {
         return LogstashMessageV0{
             Message:    m.Data,
@@ -266,6 +264,7 @@ func createLogstashMessage(m *router.Message, docker_host string, use_v0 bool) i
             ImageTag:   image_tag,
             Source:     m.Source,
             DockerHost: docker_host,
+            Labels: labels,
         },
     }
 }
